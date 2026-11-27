@@ -858,19 +858,23 @@ export function initVR(C) {
 
   /* ---------- Locomoción VR: stick izq. mueve (grip = correr), stick der. gira 45°, A salta ---------- */
   const f = new THREE.Vector3();
-  function vrMove() {
+  const TURN_SPEED = 1.9;   // giro con el stick derecho, rad/s (≈110°/s a tope)
+  let turnV = 0;
+  function vrMove(dt) {
     rig.position.set(heroBody.position.x, heroBody.position.y - C.HERO_FEET, heroBody.position.z);
-    let mx = 0, mz = 0, run = false;
+    let mx = 0, mz = 0, run = false, turn = 0;
     for (const src of renderer.xr.getSession().inputSources) {
       const a = src.gamepad?.axes, b = src.gamepad?.buttons;
       if (!a || a.length < 4) continue;
       if (src.handedness === 'left') { mx = a[2]; mz = -a[3]; run = !!b[1]?.pressed; }
       if (src.handedness === 'right') {
-        if (Math.abs(a[2]) > 0.7 && !snap) { rig.rotation.y -= Math.sign(a[2]) * Math.PI / 4; snap = true; }
-        else if (Math.abs(a[2]) < 0.3) snap = false;
+        const ax = Math.abs(a[2]) < 0.15 ? 0 : Math.sign(a[2]) * (Math.abs(a[2]) - 0.15) / 0.85;   // zona muerta + giro proporcional
+        turn = ax;
         if (b[4]?.pressed && C.isGrounded()) heroBody.velocity.y = CONFIG.jumpSpeed;
       }
     }
+    turnV += (turn * TURN_SPEED - turnV) * Math.min(1, dt * 12);   // suavizado: arranca y frena sin tirones
+    rig.rotation.y -= turnV * dt;
     if (Math.hypot(mx, mz) < 0.15) mx = mz = 0;
     camera.getWorldDirection(f); f.y = 0; f.normalize();
     const sp = run ? CONFIG.runSpeed : CONFIG.walkSpeed;
@@ -890,7 +894,7 @@ export function initVR(C) {
     if (inVR) {
       wasVR = true; hero.group.visible = false;
       if (!running) { ensureT -= dt; if (ensureT <= 0) { ensureT = 0.4; C.ensureRunning(); } }   // en VR el juego nunca debe quedarse en la pausa del navegador
-      if (running && !S.over) { pollPause(); if (!vrPause) vrMove(); }
+      if (running && !S.over) { pollPause(); if (!vrPause) vrMove(dt); }
     } else if (vrPause) setVrPause(false);
     S.hurt = Math.max(0, S.hurt - dt * 1.8); S.inv = Math.max(0, S.inv - dt);
     if (level() !== lastLvl) {
