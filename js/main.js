@@ -1312,6 +1312,7 @@ Object.assign(lockHint.style, {
 stage.appendChild(lockHint);
 
 function lockMouse() {
+  if (renderer.xr.isPresenting) return;   // en VR no hay puntero que capturar
   try {
     const p = canvas.requestPointerLock();
     if (p && p.catch) p.catch(() => {});
@@ -1320,7 +1321,7 @@ function lockMouse() {
 document.addEventListener('pointerlockchange', () => {
   pointerLocked = document.pointerLockElement === canvas;
   lockHint.style.display = 'none';
-  if (!pointerLocked) { aimMouse = false; if (started && !paused && !(vr && vr.dead())) openPause(); }
+  if (!pointerLocked) { aimMouse = false; if (started && !paused && !renderer.xr.isPresenting && !(vr && vr.dead())) openPause(); }
 });
 
 canvas.addEventListener('pointerdown', (e) => {
@@ -1345,6 +1346,7 @@ document.addEventListener('mousemove', (e) => {
 
 if (getComputedStyle(stage).position === 'static') stage.style.position = 'relative';
 const crosshair = document.createElement('div');
+crosshair.id = 'crosshair';
 // Retícula clásica: cuatro marcas con hueco central + punto, con contorno oscuro para verse sobre cualquier fondo
 Object.assign(crosshair.style, {
   position: 'absolute', left: '50%', top: '50%', width: '0', height: '0',
@@ -1379,7 +1381,7 @@ function showPane(name) {
   for (const [k, el] of Object.entries(panes)) el.hidden = k !== name;
 }
 function openPause() {
-  if (paused || !started) return;
+  if (paused || !started || renderer.xr.isPresenting) return;
   paused = true;
   keys.clear(); aimMouse = false;
   if (document.pointerLockElement) document.exitPointerLock();
@@ -1532,7 +1534,7 @@ function updateShots(dt) {
   }
   // La mira se ve siempre: cerrada y nítida al apuntar (F), más abierta y tenue sin apuntar,
   // y se abre un instante al disparar.
-  crosshair.style.display = started && !paused ? 'block' : 'none';
+  crosshair.style.display = started && !paused && !(vr && vr.dead()) ? 'block' : 'none';
   const gap = (hero.aiming ? 4 : 10) + 8 * (hero.shootTimer / CONFIG.shootCooldown);
   crosshair.style.setProperty('--g', `${gap.toFixed(1)}px`);
   crosshair.style.opacity = hero.aiming ? '1' : '0.75';

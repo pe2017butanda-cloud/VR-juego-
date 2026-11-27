@@ -35,7 +35,7 @@ export function initVR(C) {
   };
 
   const S = { hp: MAXHP, score: 0, over: 0, hurt: 0, inv: 0, deadT: 0, regen: 0, msg: '', msgT: 0, msgC: '#ff5a3a' };
-  let lastLvl = 1, live = false, cd = 0, spawnT = 0, wasVR = false, snap = false, nowT = 0, deathVR = false;
+  let vrPause = false, vrPane = 'menu', ensureT = 0, lastLvl = 1, live = false, cd = 0, spawnT = 0, wasVR = false, snap = false, nowT = 0, deathVR = false;
 
   // ¿Hay una caja sólida (saloon, molino, rocas, árboles...) a menos de `m` metros de este punto?
   const solid = (x, z, m) => {
@@ -304,13 +304,10 @@ export function initVR(C) {
     };
     if (type === 'bandit') {                                  // revólver a una mano
       arm(1, -1.35, 0, 0); arm(-1, 0.08, 0, -0.12);
-      add(new THREE.BoxGeometry(0.05, 0.06, 0.3), steel, 0.34, 1.4, 0.82);
-      add(new THREE.BoxGeometry(0.045, 0.13, 0.06), leather, 0.34, 1.33, 0.67, g, [0.3, 0, 0]);
+      const rv = buildRevolver(); rv.scale.setScalar(1.35); rv.rotation.y = Math.PI; rv.position.set(0.34, 1.37, 0.66); g.add(rv);
     } else {                                                   // arma larga a dos manos
       arm(1, -1.3, -0.3, 0); arm(-1, -1.3, 0.35, 0);
-      const L = long ? 1.25 : 0.95, th = long ? 0.045 : 0.07;
-      add(new THREE.BoxGeometry(th, th, L), steel, 0.02, 1.4, 0.65 + L / 2 - 0.2);
-      add(new THREE.BoxGeometry(th * 1.4, th * 2.2, 0.32), M(0x5a3a22), 0.02, 1.38, 0.5, g, [0.1, 0, 0]);   // culata
+      const lg = buildLongGun(long ? 1.25 : 0.95, big); lg.rotation.y = Math.PI; lg.position.set(0.02, 1.38, 0.62); g.add(lg);
     }
     g.scale.setScalar(T.sc);
     const e = { type, T, sc: T.sc, dmg: T.dmg, spd: T.spd, range: T.range, keep: T.keep, cdR: T.cd, pts: T.pts, tr: T.tr, g, mm, legs, hp: T.hp, cd: R(1.5, 3), los: true, losT: 0, vx: 0, vz: 0, aimT: 0, strafeT: R(0.5, 2), aimDur: type === 'rifle' ? 0.6 : type === 'brute' ? 0.45 : 0.35, acc: type === 'rifle' ? 0.75 : type === 'brute' ? 0.5 : 0.55, side: Math.random() < .5 ? 1 : -1, state: 'live', t: 0, flash: 0, ph: R(0, 6) };
@@ -365,9 +362,67 @@ export function initVR(C) {
     return hit.point;
   }
 
+
+  /* ---------- Armas detalladas (apuntan hacia -z; el origen es la empuñadura) ---------- */
+  let GM = null;
+  function gunMats() {
+    return GM || (GM = {
+      steel: new THREE.MeshStandardMaterial({ color: 0x2a2d33, metalness: 0.85, roughness: 0.32 }),
+      blue: new THREE.MeshStandardMaterial({ color: 0x15171b, metalness: 0.8, roughness: 0.45 }),
+      brass: new THREE.MeshStandardMaterial({ color: 0xc9a441, metalness: 0.85, roughness: 0.28 }),
+      wood: new THREE.MeshStandardMaterial({ color: 0x5a3418, metalness: 0.05, roughness: 0.65 }),
+      woodD: new THREE.MeshStandardMaterial({ color: 0x3a2210, metalness: 0.05, roughness: 0.7 }),
+      dark: new THREE.MeshBasicMaterial({ color: 0x050505 }),
+    });
+  }
+  const gb = (g, geo, m, x, y, z, rx = 0, ry = 0, rz = 0) => {
+    const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.rotation.set(rx, ry, rz); o.castShadow = true; g.add(o); return o;
+  };
+  function buildRevolver() {            // revólver del Viejo Oeste: cañón largo, tambor de 6 cámaras, empuñadura de nogal y latón
+    const M = gunMats(), g = new THREE.Group(), H = Math.PI / 2;
+    gb(g, new THREE.CylinderGeometry(0.0125, 0.0135, 0.2, 12), M.steel, 0, 0.038, -0.19, H, 0, 0);          // cañón
+    gb(g, new THREE.CylinderGeometry(0.0155, 0.0155, 0.012, 12), M.steel, 0, 0.038, -0.292, H, 0, 0);       // boca
+    gb(g, new THREE.BoxGeometry(0.016, 0.016, 0.14), M.steel, 0, 0.016, -0.17);                            // varilla del extractor
+    gb(g, new THREE.CylinderGeometry(0.008, 0.008, 0.13, 8), M.steel, 0.019, 0.018, -0.15, H, 0, 0);
+    gb(g, new THREE.BoxGeometry(0.006, 0.012, 0.01), M.brass, 0, 0.056, -0.285);                           // mira delantera
+    gb(g, new THREE.BoxGeometry(0.034, 0.056, 0.1), M.blue, 0, 0.03, -0.035);                              // armazón
+    const drum = gb(g, new THREE.CylinderGeometry(0.03, 0.03, 0.056, 12), M.steel, 0, 0.038, -0.088, H, 0, 0);
+    for (let i = 0; i < 6; i++) {                                                                          // cámaras del tambor
+      const a = i * Math.PI / 3;
+      gb(g, new THREE.CylinderGeometry(0.006, 0.006, 0.004, 8), M.dark, Math.cos(a) * 0.019, 0.038 + Math.sin(a) * 0.019, -0.118, H, 0, 0);
+    }
+    gb(g, new THREE.TorusGeometry(0.03, 0.004, 6, 16), M.brass, 0, 0.038, -0.06, 0, 0, 0);                  // aro de latón
+    gb(g, new THREE.BoxGeometry(0.01, 0.036, 0.014), M.steel, 0, 0.072, 0.012, -0.5, 0, 0);                // martillo
+    gb(g, new THREE.TorusGeometry(0.024, 0.0035, 6, 14, Math.PI), M.brass, 0, -0.004, -0.015, 0, H, Math.PI); // guardamonte
+    gb(g, new THREE.BoxGeometry(0.006, 0.022, 0.007), M.steel, 0, 0.006, -0.012, 0.25, 0, 0);               // gatillo
+    gb(g, new THREE.BoxGeometry(0.032, 0.11, 0.05), M.wood, 0, -0.05, 0.038, -0.3, 0, 0);                   // empuñadura de nogal
+    gb(g, new THREE.BoxGeometry(0.034, 0.105, 0.008), M.brass, 0, -0.05, 0.066, -0.3, 0, 0);                // placa trasera de latón
+    gb(g, new THREE.BoxGeometry(0.036, 0.012, 0.056), M.brass, 0, -0.108, 0.022, -0.3, 0, 0);               // casquillo
+    return g;
+  }
+  function buildLongGun(len = 1.1, shotgun = false) {   // rifle de palanca / escopeta de dos cañones
+    const M = gunMats(), g = new THREE.Group(), H = Math.PI / 2;
+    const bl = len * 0.62;
+    if (shotgun) {
+      for (const x of [-0.016, 0.016]) gb(g, new THREE.CylinderGeometry(0.015, 0.016, bl, 10), M.blue, x, 0.03, -0.05 - bl / 2, H, 0, 0);
+      gb(g, new THREE.BoxGeometry(0.046, 0.008, bl), M.steel, 0, 0.047, -0.05 - bl / 2);
+    } else {
+      gb(g, new THREE.CylinderGeometry(0.014, 0.016, bl, 8), M.blue, 0, 0.03, -0.05 - bl / 2, H, 0, 0);
+      gb(g, new THREE.CylinderGeometry(0.011, 0.011, bl * 0.7, 8), M.steel, 0, 0.0, -0.05 - bl * 0.35, H, 0, 0);     // cargador tubular
+      gb(g, new THREE.BoxGeometry(0.008, 0.016, 0.012), M.brass, 0, 0.052, -0.05 - bl);                              // mira delantera
+    }
+    gb(g, new THREE.BoxGeometry(0.04, 0.052, 0.2), M.brass, 0, 0.022, 0.02);                                         // caja del mecanismo
+    gb(g, new THREE.BoxGeometry(0.044, 0.04, bl * 0.55), M.wood, 0, 0.0, -0.05 - bl * 0.3);                          // guardamano
+    gb(g, new THREE.BoxGeometry(0.04, 0.06, 0.3), M.wood, 0, 0.0, 0.26, -0.12, 0, 0);                               // culata
+    gb(g, new THREE.BoxGeometry(0.044, 0.07, 0.03), M.brass, 0, -0.01, 0.42, -0.12, 0, 0);                           // plancha de culata
+    gb(g, new THREE.TorusGeometry(0.03, 0.004, 6, 12), M.brass, 0, -0.045, 0.0, 0, H, 0);                            // palanca
+    gb(g, new THREE.BoxGeometry(0.008, 0.012, 0.01), M.steel, 0, 0.056, 0.1);                                        // mira trasera
+    return g;
+  }
+
   /* ---------- Controles de mano: gatillo = disparar ---------- */
   function fire(c) {
-    if (cd > 0 || S.over || !live) return;
+    if (cd > 0 || S.over || !live || vrPause) return;
     cd = CONFIG.shootCooldown;
     const o = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
     const d = new THREE.Vector3(0, 0, -1).applyMatrix4(new THREE.Matrix4().extractRotation(c.matrixWorld)).normalize();
@@ -387,15 +442,18 @@ export function initVR(C) {
     }
     tracer(o.clone().addScaledVector(d, 0.25), p || (h && h.point) || o.clone().addScaledVector(d, wl ? wd : 40));
     C.playShot(); haptic(0.5, 60, c.userData.hand);
+    if (c.userData.flash) { c.userData.flash.visible = true; setTimeout(() => { c.userData.flash.visible = false; }, 55); }
   }
-  const iron = new THREE.MeshStandardMaterial({ color: 0x24201c, metalness: 0.7, roughness: 0.5 });
+  const flashMat = new THREE.MeshBasicMaterial({ color: 0xffd27a, transparent: true, opacity: 0.95, fog: false });
   [0, 1].forEach((i) => {
     const c = renderer.xr.getController(i);
-    const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.03, 0.22), iron); barrel.position.z = -0.12;
-    const grip = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.1, 0.04), iron); grip.position.set(0, -0.05, 0.01);
-    const laser = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, -0.25), new THREE.Vector3(0, 0, -8)]),
-      new THREE.LineBasicMaterial({ color: 0xd9a441, transparent: true, opacity: 0.35, fog: false }));
-    c.add(barrel, grip, laser);
+    const gun = buildRevolver(); gun.position.set(0, -0.012, 0.03); gun.rotation.x = 0.12;
+    const laser = new THREE.Line(new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.03, -0.32), new THREE.Vector3(0, 0.03, -8)]),
+      new THREE.LineBasicMaterial({ color: 0xd9a441, transparent: true, opacity: 0.3, fog: false }));
+    const mf = new THREE.Mesh(new THREE.ConeGeometry(0.04, 0.12, 8), flashMat);
+    mf.rotation.x = -Math.PI / 2; mf.position.set(0, 0.038, -0.36); mf.visible = false;
+    c.userData.flash = mf;
+    c.add(gun, laser, mf);
     c.addEventListener('connected', (e) => { c.userData.hand = e.data.handedness; });
     c.addEventListener('selectstart', () => fire(c));
     rig.add(c);
@@ -638,7 +696,7 @@ export function initVR(C) {
   const DFF = 'RDR, "Rubik Dirt", Impact, sans-serif';
   // Botón redondo gris claro (como en el menú de pausa): ↵, ESC, A o B. Devuelve su ancho.
   function keycap(g, kind, x, y) {
-    const h = 56, r = h / 2, w = kind === 'esc' ? 108 : h;
+    const h = 56, r = h / 2, w = (kind === 'esc' || (kind !== 'enter' && kind.length > 2)) ? 108 : h;
     g.save();
     g.shadowColor = 'rgba(0,0,0,.65)'; g.shadowBlur = 10; g.shadowOffsetY = 3;
     g.fillStyle = '#ececec';
@@ -735,6 +793,69 @@ export function initVR(C) {
     prevA = A; prevB = B;
   }
 
+
+  /* ---------- Menú de pausa en VR (Y = abrir/cerrar · A/X continuar · Gatillo controles · B volver a inicio) ---------- */
+  const pBG = new THREE.Mesh(new THREE.PlaneGeometry(2, 2),
+    new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.8, depthTest: false, depthWrite: false, fog: false }));
+  pBG.position.z = -0.3; pBG.renderOrder = 1002; pBG.frustumCulled = false; pBG.visible = false;
+  const pcv = document.createElement('canvas'); pcv.width = 1024; pcv.height = 576;
+  const ptex = new THREE.CanvasTexture(pcv); ptex.colorSpace = THREE.SRGBColorSpace;
+  const pPanel = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 0.7875),
+    new THREE.MeshBasicMaterial({ map: ptex, transparent: true, depthTest: false, depthWrite: false, fog: false }));
+  pPanel.position.z = -1.1; pPanel.renderOrder = 1003; pPanel.frustumCulled = false; pPanel.visible = false;
+  camera.add(pBG, pPanel);
+  function drawPause() {
+    const g = pcv.getContext('2d'), W = 1024, H = 576, FF = 'RDR, "Rubik Dirt", Impact, sans-serif';
+    g.clearRect(0, 0, W, H);
+    g.textBaseline = 'middle'; g.lineJoin = 'round';
+    const line = (txt, x, y, size, col = '#fff', align = 'left') => {
+      g.font = `${size}px ${FF}`; g.textAlign = align; g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,.92)';
+      g.strokeText(txt, x, y); g.fillStyle = col; g.fillText(txt, x, y);
+    };
+    line(vrPane === 'menu' ? 'PAUSA' : 'CONTROLES', 70, 90, 96, '#b3120c');
+    if (vrPane === 'menu') {
+      [['CONTINUAR', 'A'], ['CONTROLES', 'GATILLO'], ['VOLVER A INICIO', 'B']].forEach(([t, k], i) => {
+        const y = 250 + i * 100;
+        line(t, 70, y, 54);
+        g.font = `54px ${FF}`;
+        g.save(); g.translate(70 + g.measureText(t).width + 30, y); keycap(g, k, 0, 0); g.restore();
+      });
+      line(`NIVEL ${level()}   ·   PUNTOS ${S.score}`, 70, 520, 34, '#ead9b0');
+    } else {
+      [['Stick izquierdo', 'Moverse'], ['Grip izquierdo', 'Correr (mantener)'], ['Stick derecho', 'Girar 45°'],
+       ['Gatillo', 'Disparar'], ['Botón A', 'Saltar'], ['Botón Y', 'Pausa']].forEach(([a, b], i) => {
+        line(a, 70, 190 + i * 62, 36, '#ead9b0'); line(b, 520, 190 + i * 62, 36);
+      });
+      line('Atrás', 70, 540, 40); g.font = `40px ${FF}`;
+      g.save(); g.translate(70 + g.measureText('Atrás').width + 24, 540); keycap(g, 'A', 0, 0); g.restore();
+    }
+    ptex.needsUpdate = true;
+  }
+  function setVrPause(on) {
+    vrPause = on; vrPane = 'menu';
+    pBG.visible = pPanel.visible = on;
+    if (on) drawPause();
+  }
+  let pPrev = { y: true, a: true, b: true, t: true };
+  function pollPause() {     // lee los botones de los mandos (flancos de subida)
+    const now = { y: false, a: false, b: false, t: false };
+    for (const src of renderer.xr.getSession()?.inputSources || []) {
+      const b = src.gamepad?.buttons;
+      if (!b) continue;
+      if (b[0]?.pressed) now.t = true;
+      if (b[4]?.pressed) now.a = true;
+      if (b[5]?.pressed) { if (src.handedness === 'left') now.y = true; else now.b = true; }
+    }
+    const up = (k) => now[k] && !pPrev[k];
+    if (!vrPause) { if (up('y')) setVrPause(true); }
+    else if (vrPane === 'menu') {
+      if (up('a') || up('y')) setVrPause(false);
+      else if (up('t')) { vrPane = 'controls'; drawPause(); }
+      else if (up('b')) { setVrPause(false); quit(); }
+    } else if (up('a') || up('b') || up('y')) { vrPane = 'menu'; drawPause(); }
+    pPrev = now;
+  }
+
   /* ---------- Locomoción VR: stick izq. mueve (grip = correr), stick der. gira 45°, A salta ---------- */
   const f = new THREE.Vector3();
   function vrMove() {
@@ -766,7 +887,11 @@ export function initVR(C) {
     cd = Math.max(0, cd - dt);
     const hp0 = heroBody.position;
 
-    if (inVR) { wasVR = true; hero.group.visible = false; if (running && !S.over) vrMove(); }
+    if (inVR) {
+      wasVR = true; hero.group.visible = false;
+      if (!running) { ensureT -= dt; if (ensureT <= 0) { ensureT = 0.4; C.ensureRunning(); } }   // en VR el juego nunca debe quedarse en la pausa del navegador
+      if (running && !S.over) { pollPause(); if (!vrPause) vrMove(); }
+    } else if (vrPause) setVrPause(false);
     S.hurt = Math.max(0, S.hurt - dt * 1.8); S.inv = Math.max(0, S.inv - dt);
     if (level() !== lastLvl) {
       if (level() > lastLvl) { S.msg = `¡NIVEL ${level()}!`; S.msgT = 2.5; S.msgC = '#ffb84a'; tone(330, 0.25, 'triangle', 0.2, 660); }
@@ -783,6 +908,9 @@ export function initVR(C) {
         if (deathVR !== inVR) { deathVR = inVR; layoutDeath(); }
         else if (dAsp !== (deathVR ? 16 / 9 + 100 : (camera.aspect || 16 / 9))) layoutDeath();   // muestra ↵/ESC en PC y A/B en VR
         if (inVR) pollDeathButtons();
+      }
+      else if (vrPause) {                // pausa en VR: todo congelado
+        heroBody.velocity.x = heroBody.velocity.z = 0;
       }
       else {
         // recuperación lenta de vida si llevas un rato sin recibir daño
@@ -915,16 +1043,17 @@ export function initVR(C) {
       lines[i].life -= dt;
       if (lines[i].life <= 0) { scene.remove(lines[i].l); lines[i].l.geometry.dispose(); lines[i].l.material.dispose(); lines.splice(i, 1); }
     }
-    healthP.mesh.visible = scoreP.mesh.visible = mmMesh.visible = running && !S.over;
+    healthP.mesh.visible = scoreP.mesh.visible = mmMesh.visible = running && !S.over && !vrPause;
     if (running && !S.over) drawMinimap();
     layoutHUD(inVR);
     drawHUD(S.msgT > 0 ? S.msg : '');
   }
 
   /* ---------- Entrada/salida de VR ---------- */
-  renderer.xr.addEventListener('sessionstart', () => setTimeout(C.ensureRunning, 300));
+  renderer.xr.addEventListener('sessionstart', () => { [100, 400, 1000].forEach((ms) => setTimeout(C.ensureRunning, ms)); });
   renderer.xr.addEventListener('sessionend', () => {
     rig.position.set(0, 0, 0); rig.rotation.set(0, 0, 0);
+    setVrPause(false);
     hero.group.visible = true; wasVR = false;
     camera.position.copy(controls.target).add(new THREE.Vector3(0, 2, 3.2));
   });
